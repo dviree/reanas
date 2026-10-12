@@ -160,6 +160,9 @@ services:
     image: rea-workbench:$REA_VERSION
     container_name: rea-workbench
     restart: unless-stopped
+    # Dockers standardnatverk: NAS-appar har ofta tagit slut pa adresspoolerna
+    # sa att ett nytt projektnatverk inte kan skapas.
+    network_mode: bridge
     ports:
       - "\${BIND_IP}:4096:4096"
     environment:
