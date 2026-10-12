@@ -9,6 +9,10 @@ BASE="${REA_BASE:-/volume2/docker/rea}"
 DATA="${REA_DATA:-/volume1/rea}"
 REA_VERSION=6.4.0
 OPENCODE_VERSION=1.19.0
+# Ghidra behover minuter for stora binarer pa en NAS. OpenCode avbryter annars
+# varje MCP-anrop efter 5 s; klientens grans maste overstiga Ghidras startgrans.
+GHIDRA_STARTUP_TIMEOUT_MS=1800000
+MCP_TOOL_TIMEOUT_MS=2400000
 GHIDRA_VERSION=12.1.4
 GHIDRA_RELEASE_DATE=20260921
 GHIDRA_SHA256=ddac49f903da9d5bac833e5cc79395098b9c33cfd3279be5f31bd00387d2d4db
@@ -170,7 +174,7 @@ services:
       JAVA_HOME: /opt/java/openjdk
       GHIDRA_INSTALL_DIR: /opt/ghidra/$GHIDRA_DIRNAME
       REA_ANALYSIS_PROVIDER: ghidra
-      REA_GHIDRA_STARTUP_TIMEOUT_MS: "600000"
+      REA_GHIDRA_STARTUP_TIMEOUT_MS: "$GHIDRA_STARTUP_TIMEOUT_MS"
       XDG_CACHE_HOME: /data/cache
       XDG_DATA_HOME: /data/share
       XDG_STATE_HOME: /data/state
@@ -214,6 +218,27 @@ if docker compose run --rm --no-deps rea rea setup --client opencode --yes --jso
   echo 'REA agent-setup genomfort.'
 else
   echo 'VARNING: skill-setup misslyckades; MCP-konfigurationen finns redan.'
+fi
+
+log 'Satter OpenCode:s MCP-tidsgrans for langa Ghidra-analyser'
+# experimental.mcp_timeout lamnar REA:s egen serverpost orord; backup vid andring.
+if docker compose run --rm --no-deps -e MCP_TOOL_TIMEOUT_MS="$MCP_TOOL_TIMEOUT_MS" rea node -e '
+const fs = require("fs");
+const file = "/home/node/.config/opencode/opencode.json";
+const want = Number(process.env.MCP_TOOL_TIMEOUT_MS);
+const config = JSON.parse(fs.readFileSync(file, "utf8"));
+const current = config.experimental && config.experimental.mcp_timeout;
+if (typeof current === "number" && current >= want) {
+  console.log("Redan satt:", current, "ms");
+} else {
+  fs.copyFileSync(file, file + ".bak-" + Date.now());
+  config.experimental = { ...(config.experimental || {}), mcp_timeout: want };
+  fs.writeFileSync(file, JSON.stringify(config, null, 2) + "\n");
+  console.log("mcp_timeout satt till", want, "ms");
+}
+'; then :; else
+  echo 'VARNING: kunde inte satta mcp_timeout; langa Ghidra-anrop kan avbrytas efter 5 s.'
+  SETUP_OK=0
 fi
 
 log 'Startar OpenCode Web + REA'
